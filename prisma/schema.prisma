@@ -1,0 +1,128 @@
+// Prisma schema for PulseCheck API Monitoring & Incident Management Platform
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  passwordHash  String
+  role          String         @default("user")
+  webhookUrl    String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  monitors      Monitor[]
+  notifications Notification[]
+  statusPages   StatusPage[]
+
+  @@map("users")
+}
+
+model Monitor {
+  id                  String        @id @default(uuid())
+  userId              String
+  name                String
+  url                 String
+  method              String        @default("GET")
+  intervalSeconds     Int           @default(60)
+  timeoutMs           Int           @default(5000)
+  isActive            Boolean       @default(true)
+  expectedStatusCode  Int           @default(200)
+  failureThreshold    Int           @default(3)
+  recoveryThreshold   Int           @default(3)
+  consecutiveFailures  Int           @default(0)
+  consecutiveSuccesses Int           @default(0)
+  lastCheckedAt       DateTime?
+  lastStatus          String        @default("pending") // "operational" | "down" | "degraded" | "pending"
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkResults        CheckResult[]
+  incidents           Incident[]
+
+  @@index([userId])
+  @@index([isActive])
+  @@map("monitors")
+}
+
+model CheckResult {
+  id             String    @id @default(uuid())
+  monitorId      String
+  checkedAt      DateTime  @default(now())
+  statusCode     Int?
+  responseTimeMs Int
+  success        Boolean
+  errorType      String?   // "TIMEOUT" | "DNS_ERROR" | "SSRF_BLOCKED" | "CONNECTION_REFUSED" | "HTTP_ERROR" | "UNKNOWN"
+  errorMessage   String?
+
+  monitor        Monitor   @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, checkedAt])
+  @@index([checkedAt])
+  @@map("check_results")
+}
+
+model Incident {
+  id             String         @id @default(uuid())
+  monitorId      String
+  startedAt      DateTime       @default(now())
+  resolvedAt     DateTime?
+  reason         String
+  status         String         @default("OPEN") // "OPEN" | "RESOLVED" | "ACKNOWLEDGED"
+  acknowledgedAt DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  monitor        Monitor        @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+  notifications  Notification[]
+
+  @@index([monitorId, status])
+  @@index([startedAt])
+  @@map("incidents")
+}
+
+model Notification {
+  id          String    @id @default(uuid())
+  userId      String
+  incidentId  String?
+  channel     String    // "EMAIL" | "WEBHOOK" | "IN_APP"
+  status      String    @default("SENT") // "SENT" | "FAILED" | "QUEUED"
+  recipient   String
+  message     String
+  error       String?
+  sentAt      DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  incident    Incident? @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sentAt])
+  @@index([incidentId])
+  @@map("notifications")
+}
+
+model StatusPage {
+  id                 String   @id @default(uuid())
+  userId             String
+  title              String
+  description        String?
+  slug               String   @unique
+  isPublished        Boolean  @default(true)
+  selectedMonitorIds String[] @default([])
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([slug])
+  @@index([userId])
+  @@map("status_pages")
+}
