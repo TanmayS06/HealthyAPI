@@ -1,0 +1,21 @@
+import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
+
+const connectionString = process.env.DATABASE_URL || "postgresql://pulsecheck:local_dev_password@localhost:5432/pulsecheck?schema=public";
+
+const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
+
+function createPrismaClient() {
+  const pool = new pg.Pool({ connectionString });
+  const adapter = new PrismaPg(pool);
+  return new PrismaClient({ adapter });
+}
+
+export const db = globalForPrisma.prisma ?? createPrismaClient();
+
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = db;
+}
+
+export default db;
