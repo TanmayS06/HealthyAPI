@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pulsecheck_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: pulsecheck
+      POSTGRES_PASSWORD: local_dev_password
+      POSTGRES_DB: pulsecheck
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsecheck -d pulsecheck"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pulsecheck_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulsecheck_web
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: "postgresql://pulsecheck:local_dev_password@postgres:5432/pulsecheck?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      NEXTAUTH_SECRET: "pulsecheck_super_secret_jwt_key_2026_dev"
+      NEXTAUTH_URL: "http://localhost:3000"
+      APP_URL: "http://localhost:3000"
+      NODE_ENV: "production"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pulsecheck_worker
+    restart: always
+    command: ["npm", "run", "worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://pulsecheck:local_dev_password@postgres:5432/pulsecheck?schema=public"
+      REDIS_URL: "redis://redis:6379"
+      NODE_ENV: "production"
+
+volumes:
+  postgres_data:
+  redis_data:
