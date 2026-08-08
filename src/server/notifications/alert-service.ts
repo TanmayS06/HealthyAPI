@@ -39,7 +39,7 @@ export async function dispatchAlert(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "User-Agent": "PulseCheck-Alerts/1.0",
+          "User-Agent": "HealthyAPI-Alerts/1.0",
         },
         body: JSON.stringify({
           event: payload.type,

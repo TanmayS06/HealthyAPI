@@ -1,4 +1,4 @@
-# 💓 PulseCheck — API Monitoring & Incident Management Platform
+# 💓 HealthyAPI — API Monitoring & Incident Management Platform
 
 [![CI / Production Quality Gate](https://github.com/TanmayS06/HealthyAPI/actions/workflows/ci.yml/badge.svg)](https://github.com/TanmayS06/HealthyAPI/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-v22%20LTS-green)](https://nodejs.org/)
@@ -7,7 +7,7 @@
 [![Redis](https://img.shields.io/badge/Redis-BullMQ-red)](https://redis.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**PulseCheck** is a production-grade synthetic API monitoring and automated incident response platform built with Next.js, PostgreSQL, Redis, BullMQ, and TypeScript. It continuously verifies endpoint availability, captures response-time telemetry, evaluates consecutive outage thresholds, automatically resolves incidents upon recovery, dispatches webhook alerts, and renders public status pages.
+**HealthyAPI** is a production-grade synthetic API monitoring and automated incident response platform built with Next.js, PostgreSQL, Redis, BullMQ, and TypeScript. It continuously verifies endpoint availability, captures response-time telemetry, evaluates consecutive outage thresholds, automatically resolves incidents upon recovery, dispatches webhook alerts, and renders public status pages.
 
 Designed from the ground up for software engineering rigor, distributed background processing, and software engineering internship portfolio demonstrations.
 
@@ -87,7 +87,7 @@ While Next.js handles user authentication, CRUD operations, and analytics render
 
 ## 🗄️ Relational Database Schema
 
-PulseCheck uses PostgreSQL with Prisma ORM 7:
+HealthyAPI uses PostgreSQL with Prisma ORM 7:
 
 - `User`: Accounts, hashed credentials (`bcryptjs`), alert webhook URLs.
 - `Monitor`: Endpoint configuration (`url`, `method`, `intervalSeconds`, `timeoutMs`, `failureThreshold`, `recoveryThreshold`, `consecutiveFailures`, `consecutiveSuccesses`, `lastStatus`).
@@ -105,7 +105,7 @@ Allowing users to register arbitrary URLs creates severe security risks without 
 - **Cloud Metadata Harvesting**: Querying `http://169.254.169.254/latest/meta-data/` to steal IAM roles.
 - **DNS Rebinding & Redirect Attacks**: Redirecting from a public domain to `http://localhost:5432`.
 
-### PulseCheck Protections:
+### HealthyAPI Protections:
 1. **Protocol Restrictions**: Only `http:` and `https:` are permitted.
 2. **Credential Stripping**: Reject URLs embedding userinfo credentials (`user:pass@host`).
 3. **DNS Validation**: Resolves all IPv4 and IPv6 addresses via `dns.lookup({ all: true })`. If any address resolves to private, loopback, link-local, carrier-grade NAT, or multicast ranges, the request is blocked before any HTTP socket opens.
@@ -148,9 +148,9 @@ Starts PostgreSQL, Redis, the Next.js web application on `http://localhost:3000`
    ```
    Ensure `.env` matches your local database and Redis ports:
    ```env
-   DATABASE_URL="postgresql://pulsecheck:local_dev_password@localhost:5432/pulsecheck?schema=public"
+   DATABASE_URL="postgresql://healthyapi:local_dev_password@localhost:5432/healthyapi?schema=public"
    REDIS_URL="redis://127.0.0.1:6379"
-   NEXTAUTH_SECRET="pulsecheck_super_secret_jwt_key_2026_dev"
+   NEXTAUTH_SECRET="healthyapi_super_secret_jwt_key_2026_dev"
    ```
 
 4. **Initialize Prisma & Apply Migrations**:
@@ -181,8 +181,8 @@ Starts PostgreSQL, Redis, the Next.js web application on `http://localhost:3000`
 ## 🔑 Demo Account Credentials
 
 For instant testing and interview demonstrations:
-- **Email**: `demo@pulsecheck.dev`
-- **Password**: `pulsecheck2026`
+- **Email**: `demo@healthyapi.dev`
+- **Password**: `healthyapi2026`
 - **Preconfigured Endpoints**: GitHub Zen API, Cloudflare Trace, HTTPBin Probe
 - **Public Status Page**: `http://localhost:3000/status/demo-status`
 
@@ -190,7 +190,7 @@ For instant testing and interview demonstrations:
 
 ## 🧪 Testing Suite
 
-PulseCheck includes unit and integration tests powered by Vitest:
+HealthyAPI includes unit and integration tests powered by Vitest:
 
 ```bash
 # Run all automated tests
@@ -210,7 +210,7 @@ npm run test:watch
 
 ## 💡 Software Engineering Interview Talking Points
 
-When discussing PulseCheck in engineering interviews, highlight these architectural decisions:
+When discussing HealthyAPI in engineering interviews, highlight these architectural decisions:
 
 1. **Transactional Incident Deduplication**:
    - *Problem*: If two worker threads check the same monitor concurrently during an outage, both might attempt to open an incident.

@@ -93,7 +93,7 @@ export default function PublicStatusPage({
             href="/"
             className="inline-block mt-2 text-xs font-semibold text-emerald-400 hover:underline"
           >
-            ← Return to PulseCheck
+            ← Return to HealthyAPI
           </Link>
         </div>
       </div>
@@ -283,7 +283,7 @@ export default function PublicStatusPage({
           <Activity className="w-3.5 h-3.5 text-emerald-400" />
           <span>Powered by</span>
           <Link href="/" className="font-semibold text-slate-300 hover:text-white transition">
-            PulseCheck
+            HealthyAPI
           </Link>
           <span>API Monitoring Platform</span>
         </div>

@@ -2,7 +2,7 @@ import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 
-const connectionString = process.env.DATABASE_URL || "postgresql://pulsecheck:local_dev_password@localhost:5432/pulsecheck?schema=public";
+const connectionString = process.env.DATABASE_URL || "postgresql://healthyapi:local_dev_password@localhost:5432/healthyapi?schema=public";
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined };
 

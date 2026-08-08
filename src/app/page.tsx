@@ -76,7 +76,7 @@ export default async function LandingPage() {
                 <div className="w-3 h-3 rounded-full bg-rose-500/80" />
                 <div className="w-3 h-3 rounded-full bg-amber-500/80" />
                 <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
-                <span className="ml-2 text-xs font-mono text-slate-400">pulsecheck.internal/monitors</span>
+                <span className="ml-2 text-xs font-mono text-slate-400">healthyapi.internal/monitors</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-emerald-400 font-mono font-medium flex items-center gap-1.5">
@@ -149,7 +149,7 @@ export default async function LandingPage() {
               Built for Engineering Rigor & Scalability
             </h2>
             <p className="mt-3 text-slate-400 text-sm sm:text-base">
-              PulseCheck separates concerns between the user-facing web tier, durable storage,
+              HealthyAPI separates concerns between the user-facing web tier, durable storage,
               scheduling queues, and dedicated background workers.
             </p>
           </div>
@@ -235,10 +235,10 @@ export default async function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <Activity className="w-4 h-4 text-emerald-400" />
-            <span className="font-semibold text-slate-300">PulseCheck</span>
+            <span className="font-semibold text-slate-300">HealthyAPI</span>
             <span>— API Monitoring & Incident Management Platform</span>
           </div>
-          <p>© 2026 PulseCheck. Open source under MIT License.</p>
+          <p>© 2026 HealthyAPI. Open source under MIT License.</p>
         </div>
       </footer>
     </div>

@@ -57,7 +57,7 @@ export function Navbar({ user }: NavbarProps) {
               </div>
               <div className="flex flex-col">
                 <span className="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                  PulseCheck
+                  HealthyAPI
                 </span>
                 <span className="text-[10px] text-emerald-400 font-mono tracking-wider -mt-1 uppercase">
                   Uptime Engine

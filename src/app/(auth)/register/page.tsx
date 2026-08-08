@@ -51,7 +51,7 @@ export default function RegisterPage() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 group-hover:scale-105 transition-transform">
               <Activity className="w-5 h-5 text-white" />
             </div>
-            <span className="text-2xl font-bold tracking-tight text-white">PulseCheck</span>
+            <span className="text-2xl font-bold tracking-tight text-white">HealthyAPI</span>
           </Link>
           <h1 className="text-xl font-bold text-slate-100">Create your account</h1>
           <p className="text-xs text-slate-400 mt-1">

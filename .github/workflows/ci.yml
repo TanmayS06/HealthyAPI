@@ -14,9 +14,9 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_USER: pulsecheck
+          POSTGRES_USER: healthyapi
           POSTGRES_PASSWORD: local_dev_password
-          POSTGRES_DB: pulsecheck
+          POSTGRES_DB: healthyapi
         ports:
           - 5432:5432
         options: >-
@@ -51,12 +51,12 @@ jobs:
       - name: Generate Prisma Client
         run: npx prisma generate
         env:
-          DATABASE_URL: "postgresql://pulsecheck:local_dev_password@localhost:5432/pulsecheck?schema=public"
+          DATABASE_URL: "postgresql://healthyapi:local_dev_password@localhost:5432/healthyapi?schema=public"
 
       - name: Run Prisma Migrations
         run: npx prisma migrate deploy
         env:
-          DATABASE_URL: "postgresql://pulsecheck:local_dev_password@localhost:5432/pulsecheck?schema=public"
+          DATABASE_URL: "postgresql://healthyapi:local_dev_password@localhost:5432/healthyapi?schema=public"
 
       - name: Run Vitest Unit & Integration Suites
         run: npm test
@@ -64,6 +64,6 @@ jobs:
       - name: Build Next.js Web App
         run: npm run build
         env:
-          DATABASE_URL: "postgresql://pulsecheck:local_dev_password@localhost:5432/pulsecheck?schema=public"
+          DATABASE_URL: "postgresql://healthyapi:local_dev_password@localhost:5432/healthyapi?schema=public"
           REDIS_URL: "redis://localhost:6379"
           NEXTAUTH_SECRET: "ci_temporary_secret_key_32_characters"

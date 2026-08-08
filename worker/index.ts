@@ -2,7 +2,7 @@ import { createMonitorWorker } from "./monitor-worker";
 import { createNotificationWorker } from "./notification-worker";
 
 console.log("=========================================");
-console.log("   PULSECHECK BACKGROUND WORKER RUNNER   ");
+console.log("   HEALTHYAPI BACKGROUND WORKER RUNNER   ");
 console.log("=========================================");
 
 const monitorWorker = createMonitorWorker(10);

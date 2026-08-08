@@ -34,7 +34,7 @@ export async function getMonitorAnalytics(
   monitorId: string,
   range: "24h" | "7d" | "30d" = "24h"
 ): Promise<AnalyticsSummary> {
-  const cacheKey = `pulsecheck:analytics:${monitorId}:${range}`;
+  const cacheKey = `healthyapi:analytics:${monitorId}:${range}`;
 
   // 1. Check Redis Cache
   try {

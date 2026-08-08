@@ -2,11 +2,11 @@ import { db } from "../src/lib/db";
 import { hashPassword } from "../src/lib/auth";
 
 async function main() {
-  console.log("🌱 Seeding database with realistic PulseCheck sample telemetry...");
+  console.log("🌱 Seeding database with realistic HealthyAPI sample telemetry...");
 
   // 1. Create or update demo user
-  const email = "demo@pulsecheck.dev";
-  const passwordHash = await hashPassword("pulsecheck2026");
+  const email = "demo@healthyapi.dev";
+  const passwordHash = await hashPassword("healthyapi2026");
 
   let user = await db.user.findUnique({ where: { email } });
   if (!user) {
@@ -18,7 +18,7 @@ async function main() {
         webhookUrl: "https://httpbin.org/post",
       },
     });
-    console.log(`Created demo user: ${user.email} (Password: pulsecheck2026)`);
+    console.log(`Created demo user: ${user.email} (Password: healthyapi2026)`);
   } else {
     console.log(`Demo user exists: ${user.email}`);
   }

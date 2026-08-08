@@ -61,7 +61,7 @@ export async function executeEndpointCheck(
         signal: controller.signal,
         redirect: "manual",
         headers: {
-          "User-Agent": "PulseCheck-Monitor/1.0 (+https://pulsecheck.dev)",
+          "User-Agent": "HealthyAPI-Monitor/1.0 (+https://healthyapi.dev)",
           Accept: "*/*",
           Connection: "close",
         },

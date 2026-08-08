@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PulseCheck — Real-time API Monitoring & Incident Management",
+  title: "HealthyAPI — Real-time API Monitoring & Incident Management",
   description:
     "Automate health checks, detect downtime with consecutive failure thresholds, analyze latency percentiles, and publish beautiful status pages.",
 };

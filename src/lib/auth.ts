@@ -3,8 +3,8 @@ import jwt from "jsonwebtoken";
 import { cookies } from "next/headers";
 import db from "./db";
 
-const JWT_SECRET = process.env.NEXTAUTH_SECRET || "pulsecheck_super_secret_jwt_key_2026_dev";
-const COOKIE_NAME = "pulsecheck_session";
+const JWT_SECRET = process.env.NEXTAUTH_SECRET || "healthyapi_super_secret_jwt_key_2026_dev";
+const COOKIE_NAME = "healthyapi_session";
 
 export interface SessionUser {
   id: string;
