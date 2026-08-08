@@ -3,7 +3,7 @@ import http from "node:http";
 import * as ssrfModule from "../../src/lib/ssrf";
 import { executeEndpointCheck } from "../../src/server/monitors/checker";
 
-describe("Endpoint Checker Security & Timeout Regressions", () => {
+describe("Endpoint Checker Security & Timeout Regressions - Bug Proof & Fix Verification", () => {
   const serversToClose: http.Server[] = [];
 
   afterAll(async () => {
@@ -13,8 +13,9 @@ describe("Endpoint Checker Security & Timeout Regressions", () => {
     }
   });
 
-  it("reproduces bug: stalled response body hangs indefinitely when timeout is cleared after headers", async () => {
-    // A server that sends headers immediately, but stalls sending the response body (slowloris)
+  it("proves fix: stalled response body does NOT hang indefinitely, safely aborted by overall deadline", async () => {
+    // Problem: In previous implementation, clearTimeout() was called before response body was consumed.
+    // Solution: Keep the overall deadline active throughout stream consumption.
     const stalledServer = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/plain" });
       res.write("initial-header-chunk");
@@ -22,62 +23,61 @@ describe("Endpoint Checker Security & Timeout Regressions", () => {
     });
 
     serversToClose.push(stalledServer);
-
     await new Promise<void>((resolve) => {
       stalledServer.listen(0, "127.0.0.1", () => resolve());
     });
 
     const port = (stalledServer.address() as any).port;
-
-    // Simulate pre-validation passing for this check
-    vi.spyOn(ssrfModule, "validateTargetUrl").mockResolvedValue({ isValid: true });
-
     const startTime = Date.now();
 
-    // In the buggy implementation, clearTimeout() is called right after fetch() returns headers,
-    // causing the body reader to hang indefinitely without deadline enforcement.
-    const resultPromise = executeEndpointCheck({
+    const result = await executeEndpointCheck({
       url: `http://127.0.0.1:${port}/health`,
       timeoutMs: 250,
+      _allowLoopbackForTesting: true,
     });
-
-    // Enforce a ceiling of 700ms so a hung check fails fast and proves the hang
-    let hungDetected = false;
-    const timeoutRace = new Promise<any>((resolve) => {
-      setTimeout(() => {
-        hungDetected = true;
-        resolve({ hung: true });
-      }, 600);
-    });
-
-    const outcome = await Promise.race([resultPromise, timeoutRace]);
     const duration = Date.now() - startTime;
 
-    // THE BUG IS CONFIRMED: outcome was the timeoutRace promise because executeEndpointCheck hung!
-    expect(outcome.hung).toBe(true);
-    expect(hungDetected).toBe(true);
-  }, 10000);
-
-  it("reproduces bug: pre-flight DNS validation does not bind the socket against DNS rebinding to private IPs", async () => {
-    // Threat scenario: A malicious domain resolves to a public IP during pre-flight validateTargetUrl,
-    // but when fetch() connects, DNS resolves to 127.0.0.1 or 169.254.169.254.
-    // In the buggy implementation, validateTargetUrl is detached from fetch, allowing TOCTOU rebinding.
-    const preFlightPassed = await ssrfModule.validateTargetUrl("https://cloudflare.com");
-    expect(preFlightPassed.isValid).toBe(true);
-
-    // If an attacker uses DNS rebinding or provides a domain that switches to 127.0.0.1:
-    const isLocalPrivate = ssrfModule.isPrivateIP("127.0.0.1");
-    expect(isLocalPrivate).toBe(true);
-
-    // Without socket-level pinning/lookup interception, the outbound connection connects directly
-    // to the rebind target without validating the remote socket IP.
+    // Fix verified: Request times out cleanly without hanging worker threads
+    expect(result.success).toBe(false);
+    expect(result.errorType).toBe("TIMEOUT");
+    expect(result.errorMessage).toContain("timed out");
+    expect(duration).toBeLessThan(500);
   });
 
-  it("reproduces bug: cumulative redirects reset per-hop timeout rather than enforcing overall deadline", async () => {
-    // Three sequential redirect hops
-    let hopCount = 0;
+  it("proves fix: socket-level inspection blocks connection to private IPs even if pre-flight check is bypassed", async () => {
+    // Problem: Pre-flight DNS check is susceptible to DNS rebinding (TOCTOU).
+    // Solution: safeLookup and socket.remoteAddress validation verify the actual connected IP.
+    const internalServer = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("confidential-internal-data");
+    });
+
+    serversToClose.push(internalServer);
+    await new Promise<void>((resolve) => {
+      internalServer.listen(0, "127.0.0.1", () => resolve());
+    });
+    const port = (internalServer.address() as any).port;
+
+    // Even if an attacker's domain passed pre-flight validation by returning a public IP first:
+    vi.spyOn(ssrfModule, "validateTargetUrl").mockResolvedValue({ isValid: true });
+
+    // When connection attempt hits 127.0.0.1 without loopback testing allowance:
+    const result = await executeEndpointCheck({
+      url: `http://127.0.0.1:${port}/health`,
+      timeoutMs: 1000,
+      _allowLoopbackForTesting: false, // Strict production mode
+    });
+
+    // Fix verified: Blocked by socket-level SSRF defense
+    expect(result.success).toBe(false);
+    expect(result.errorType).toBe("SSRF_BLOCKED");
+    expect(result.errorMessage).toMatch(/private|prohibited/i);
+  });
+
+  it("proves fix: cumulative redirects enforce overall deadline instead of resetting per-hop timer", async () => {
+    // Problem: Previous implementation created a new timeout timer on each hop.
+    // Solution: Single overall deadline tracks remaining time across all hops.
     const redirectServer = http.createServer((req, res) => {
-      hopCount++;
       if (req.url === "/hop1") {
         setTimeout(() => {
           res.writeHead(302, { Location: "/hop2" });
@@ -102,21 +102,19 @@ describe("Endpoint Checker Security & Timeout Regressions", () => {
     });
     const port = (redirectServer.address() as any).port;
 
-    vi.spyOn(ssrfModule, "validateTargetUrl").mockResolvedValue({ isValid: true });
-
-    // Total timeout is 200ms.
-    // In the buggy implementation, each hop gets a fresh 200ms timer!
-    // Total execution will take ~360ms and SUCCEED because no overall deadline is enforced!
+    // Total timeout is 200ms, while 3 hops take >300ms
     const startTime = Date.now();
     const result = await executeEndpointCheck({
       url: `http://127.0.0.1:${port}/hop1`,
       timeoutMs: 200,
       maxRedirects: 3,
+      _allowLoopbackForTesting: true,
     });
     const totalElapsed = Date.now() - startTime;
 
-    // In the buggy implementation, it succeeded despite exceeding the 200ms overall deadline!
-    expect(result.success).toBe(true);
-    expect(totalElapsed).toBeGreaterThan(250);
+    // Fix verified: Overall deadline aborts the cumulative chain
+    expect(result.success).toBe(false);
+    expect(result.errorType).toBe("TIMEOUT");
+    expect(totalElapsed).toBeLessThan(400);
   });
 });
