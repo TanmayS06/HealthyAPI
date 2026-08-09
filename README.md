@@ -212,16 +212,33 @@ npm run test:watch
 
 When discussing HealthyAPI in engineering interviews, highlight these architectural decisions:
 
-1. **Transactional Incident Deduplication**:
-   - *Problem*: If two worker threads check the same monitor concurrently during an outage, both might attempt to open an incident.
-   - *Solution*: Checks and incident transitions occur inside a PostgreSQL ACID interactive transaction (`db.$transaction`). Before creating an incident, the transaction queries for existing `OPEN` status records and commits atomically.
-2. **Check-Based vs. Wall-Clock Uptime**:
+1. **Defense-in-Depth Outbound Request Security & DNS Rebinding Mitigation**:
+   - *Problem*: Pre-flight URL validation alone is vulnerable to Time-of-Check to Time-of-Use (TOCTOU) DNS rebinding attacks where an attacker's domain resolves to a public IP during pre-flight checks, but returns `127.0.0.1` or `169.254.169.254` (cloud metadata) when the HTTP client establishes its TCP socket. Additionally, clearing request timeouts upon receiving headers leaves worker threads vulnerable to slowloris attacks and stalled response bodies that hang indefinitely.
+   - *Solution*: Engineered a multi-tier outbound request pipeline using Node.js socket-level hooks:
+     - Pre-flight syntactic and protocol boundary inspection (`validateTargetUrl`).
+     - Custom DNS resolver (`safeLookup`) that inspects all returned A/AAAA records against private/reserved CIDR blocks and pins the TCP socket to the validated IP.
+     - Socket connection hook (`socket.on("connect")`) verifying `socket.remoteAddress` before any HTTP payload is dispatched.
+     - Strict overall request deadline covering DNS resolution, TCP/TLS handshake, headers, all redirect hops, and bounded body consumption (64 KB cap).
+   - *Verification*: Regression suite in `tests/unit/checker-regression.test.ts` and `tests/unit/checker.test.ts` proving stalled bodies abort with `TIMEOUT` within the deadline and rebinding attempts are terminated with `SSRF_BLOCKED`.
+
+2. **Concurrency-Safe Incident Lifecycle & Single Active Incident Constraint**:
+   - *Problem*: In distributed or parallel worker setups, concurrent probe executions on the same monitor race on read-modify-write counter updates, leading to lost failure counts and duplicate incident creation. Furthermore, when an operator acknowledges an outage (`ACKNOWLEDGED`), naive engines that only query `status === "OPEN"` treat the acknowledged outage as nonexistent, spawning duplicate incidents on subsequent check failures and failing to resolve the incident upon recovery.
+   - *Solution*: 
+     - Defined explicit incident state semantics (`OPEN`, `ACKNOWLEDGED`, `RESOLVED`) where `ACTIVE_INCIDENT_STATES = ["OPEN", "ACKNOWLEDGED"]`.
+     - Serialized concurrent checks per monitor using pessimistic row-level locking (`SELECT "id" FROM "monitors" WHERE "id" = $1 FOR UPDATE`) inside PostgreSQL interactive transactions.
+     - Enforced a physical database-level partial unique index: `CREATE UNIQUE INDEX "unique_active_incident_per_monitor" ON "incidents"("monitorId") WHERE "status" IN ('OPEN', 'ACKNOWLEDGED')`.
+     - Implemented deterministic transition rules (`evaluateIncidentTransition`) ensuring acknowledged outages remain active without duplicate creation, and cleanly transition to `RESOLVED` when recovery thresholds are reached.
+   - *Verification*: Concurrency and state regression suites in `tests/unit/incident-regression.test.ts` and `tests/unit/incident-rules.test.ts` testing 5-way simultaneous worker races, subsequent failures under acknowledgement, and end-to-end auto-recovery.
+
+3. **Check-Based vs. Wall-Clock Uptime**:
    - *Problem*: Naive uptime calculations assume 100% availability between check intervals.
    - *Solution*: Transparently communicated as check-based availability $\frac{\text{Passed Checks}}{\text{Total Checks}} \times 100$, paired with P95 latency percentiles to reflect degraded performance even when HTTP 200 is returned.
-3. **Queue Idempotency in BullMQ**:
+
+4. **Queue Idempotency in BullMQ**:
    - *Problem*: Re-editing a monitor interval shouldn't leave stale repeatable cron jobs running in Redis.
    - *Solution*: Idempotent scheduling via `upsertJobScheduler(schedulerId, ...)` and explicit schedule removal on deletion or pause.
-4. **Multi-Tenant Ownership Verification**:
+
+5. **Multi-Tenant Ownership Verification**:
    - *Problem*: URL tampering allowing users to edit or inspect another user's monitors.
    - *Solution*: Centralized ownership assertions (`assertMonitorOwner`, `assertStatusPageOwner`) enforced in all Route Handlers and Server operations.
 
