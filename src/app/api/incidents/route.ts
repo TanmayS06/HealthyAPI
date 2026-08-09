@@ -13,13 +13,18 @@ export async function GET(req: Request) {
 
   const whereClause: {
     monitor: { userId: string };
-    status?: string;
+    status?: string | { in: string[] };
   } = {
     monitor: { userId: user.id },
   };
 
-  if (statusParam && ["OPEN", "RESOLVED", "ACKNOWLEDGED"].includes(statusParam.toUpperCase())) {
-    whereClause.status = statusParam.toUpperCase();
+  if (statusParam) {
+    const upper = statusParam.toUpperCase();
+    if (upper === "ACTIVE") {
+      whereClause.status = { in: ["OPEN", "ACKNOWLEDGED"] };
+    } else if (["OPEN", "RESOLVED", "ACKNOWLEDGED"].includes(upper)) {
+      whereClause.status = upper;
+    }
   }
 
   const incidents = await db.incident.findMany({

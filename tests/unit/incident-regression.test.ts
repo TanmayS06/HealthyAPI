@@ -33,8 +33,8 @@ vi.mock("@/lib/db", () => {
   return {
     default: {
       $transaction: async (cb: any) => {
-        // Emulate transaction execution
         const tx = {
+          $queryRaw: vi.fn().mockResolvedValue([{ id: "mon-1" }]),
           checkResult: {
             create: vi.fn().mockResolvedValue({ id: "cr-1" }),
           },
@@ -55,12 +55,33 @@ vi.mock("@/lib/db", () => {
             findFirst: vi.fn().mockImplementation(async ({ where }: any) => {
               const list = Array.from(mockIncidents.values()).filter((inc) => {
                 if (inc.monitorId !== where.monitorId) return false;
-                if (where.status && inc.status !== where.status) return false;
+                if (where.status) {
+                  if (typeof where.status === "string" && inc.status !== where.status) {
+                    return false;
+                  }
+                  if (where.status.in && Array.isArray(where.status.in)) {
+                    if (!where.status.in.includes(inc.status)) {
+                      return false;
+                    }
+                  }
+                }
                 return true;
               });
               return list.length > 0 ? JSON.parse(JSON.stringify(list[list.length - 1])) : null;
             }),
             create: vi.fn().mockImplementation(async ({ data }: any) => {
+              // Enforce database-level constraint: at most one active (OPEN or ACKNOWLEDGED) incident per monitor
+              const existingActive = Array.from(mockIncidents.values()).find(
+                (inc) =>
+                  inc.monitorId === data.monitorId &&
+                  (inc.status === "OPEN" || inc.status === "ACKNOWLEDGED")
+              );
+              if (existingActive) {
+                const err: any = new Error("Unique constraint failed on active incident");
+                err.code = "P2002";
+                throw err;
+              }
+
               incidentCounter++;
               const id = `inc-${incidentCounter}`;
               const inc: MockIncident = { id, ...data };
@@ -85,10 +106,14 @@ vi.mock("@/lib/db", () => {
   };
 });
 
-// Import processCheckResult which uses the mocked db
-import { processCheckResult } from "../../src/server/incidents/incident-engine";
+import {
+  processCheckResult,
+  evaluateIncidentTransition,
+  INCIDENT_STATES,
+  ACTIVE_INCIDENT_STATES,
+} from "../../src/server/incidents/incident-engine";
 
-describe("Incident Engine Concurrency & State Machine Regressions", () => {
+describe("Incident Engine Concurrency & State Machine Verifications", () => {
   beforeEach(() => {
     incidentCounter = 0;
     mockMonitors = new Map();
@@ -109,41 +134,69 @@ describe("Incident Engine Concurrency & State Machine Regressions", () => {
     });
   });
 
-  it("reproduces bug: failure arriving after incident is ACKNOWLEDGED spawns a duplicate incident", async () => {
+  it("verifies fix: failure arriving after incident is ACKNOWLEDGED does NOT spawn a duplicate incident", async () => {
     // 1. Monitor fails 3 times to open incident inc-1
-    await processCheckResult("mon-1", { success: false, statusCode: 500, responseTimeMs: 120, checkedAt: new Date(), errorType: "HTTP_500", errorMessage: "Internal error" });
-    await processCheckResult("mon-1", { success: false, statusCode: 500, responseTimeMs: 120, checkedAt: new Date(), errorType: "HTTP_500", errorMessage: "Internal error" });
-    const r3 = await processCheckResult("mon-1", { success: false, statusCode: 500, responseTimeMs: 120, checkedAt: new Date(), errorType: "HTTP_500", errorMessage: "Internal error" });
+    await processCheckResult("mon-1", {
+      success: false,
+      statusCode: 500,
+      responseTimeMs: 120,
+      checkedAt: new Date(),
+      errorType: "HTTP_500",
+      errorMessage: "Internal error",
+    });
+    await processCheckResult("mon-1", {
+      success: false,
+      statusCode: 500,
+      responseTimeMs: 120,
+      checkedAt: new Date(),
+      errorType: "HTTP_500",
+      errorMessage: "Internal error",
+    });
+    const r3 = await processCheckResult("mon-1", {
+      success: false,
+      statusCode: 500,
+      responseTimeMs: 120,
+      checkedAt: new Date(),
+      errorType: "HTTP_500",
+      errorMessage: "Internal error",
+    });
 
     expect(r3.action).toBe("INCIDENT_OPENED");
     expect(mockIncidents.size).toBe(1);
     const incident1 = Array.from(mockIncidents.values())[0];
-    expect(incident1.status).toBe("OPEN");
+    expect(incident1.status).toBe(INCIDENT_STATES.OPEN);
 
     // 2. Operator acknowledges incident inc-1
-    incident1.status = "ACKNOWLEDGED";
+    incident1.status = INCIDENT_STATES.ACKNOWLEDGED;
     incident1.acknowledgedAt = new Date();
 
     // 3. Outage continues: 4th failure occurs
-    // BUG in current code: incident-engine only queries { status: "OPEN" }.
-    // Because the incident is ACKNOWLEDGED, openIncident is null.
-    // Therefore, failures (4) >= threshold (3) triggers a DUPLICATE incident!
-    const r4 = await processCheckResult("mon-1", { success: false, statusCode: 500, responseTimeMs: 120, checkedAt: new Date(), errorType: "HTTP_500", errorMessage: "Internal error" });
+    // In our fixed engine, ACKNOWLEDGED is recognized as an ongoing outage in ACTIVE_INCIDENT_STATES.
+    // It must NOT open a second incident!
+    const r4 = await processCheckResult("mon-1", {
+      success: false,
+      statusCode: 500,
+      responseTimeMs: 120,
+      checkedAt: new Date(),
+      errorType: "HTTP_500",
+      errorMessage: "Internal error",
+    });
 
-    // In the buggy engine: r4.action is INCIDENT_OPENED and a 2nd incident is created!
-    // This confirms the bug where ACKNOWLEDGED isn't treated as an active outage.
-    expect(r4.action).toBe("INCIDENT_OPENED");
-    expect(mockIncidents.size).toBe(2); // BUG REPRODUCED: 2 incidents for 1 outage!
+    expect(r4.action).toBe("NO_CHANGE");
+    expect(r4.incidentId).toBe(incident1.id);
+    expect(mockIncidents.size).toBe(1); // Fix confirmed: exactly 1 incident preserved!
+    expect(mockMonitors.get("mon-1")!.consecutiveFailures).toBe(4);
+    expect(mockMonitors.get("mon-1")!.lastStatus).toBe("down");
   });
 
-  it("reproduces bug: recovery checks never resolve an ACKNOWLEDGED incident", async () => {
-    // Create an acknowledged incident
+  it("verifies fix: recovery checks properly auto-resolve an ACKNOWLEDGED incident", async () => {
     mockIncidents.set("inc-ack", {
       id: "inc-ack",
       monitorId: "mon-1",
       startedAt: new Date(),
       reason: "Outage",
-      status: "ACKNOWLEDGED",
+      status: INCIDENT_STATES.ACKNOWLEDGED,
+      acknowledgedAt: new Date(),
     });
 
     const monitor = mockMonitors.get("mon-1")!;
@@ -151,47 +204,143 @@ describe("Incident Engine Concurrency & State Machine Regressions", () => {
     monitor.consecutiveSuccesses = 0;
     monitor.lastStatus = "down";
 
-    // 3 recovery successes arrive
-    await processCheckResult("mon-1", { success: true, statusCode: 200, responseTimeMs: 50, checkedAt: new Date(), errorType: null, errorMessage: null });
-    await processCheckResult("mon-1", { success: true, statusCode: 200, responseTimeMs: 50, checkedAt: new Date(), errorType: null, errorMessage: null });
-    const rec3 = await processCheckResult("mon-1", { success: true, statusCode: 200, responseTimeMs: 50, checkedAt: new Date(), errorType: null, errorMessage: null });
+    // 1st recovery success
+    const rec1 = await processCheckResult("mon-1", {
+      success: true,
+      statusCode: 200,
+      responseTimeMs: 50,
+      checkedAt: new Date(),
+      errorType: null,
+      errorMessage: null,
+    });
+    expect(rec1.action).toBe("NO_CHANGE");
+    expect(mockIncidents.get("inc-ack")!.status).toBe(INCIDENT_STATES.ACKNOWLEDGED);
 
-    // BUG in current code: rec3 action is NO_CHANGE, and the incident remains ACKNOWLEDGED instead of RESOLVED!
-    expect(rec3.action).toBe("NO_CHANGE");
-    expect(mockIncidents.get("inc-ack")!.status).toBe("ACKNOWLEDGED"); // BUG REPRODUCED: never resolved!
+    // 2nd recovery success
+    const rec2 = await processCheckResult("mon-1", {
+      success: true,
+      statusCode: 200,
+      responseTimeMs: 50,
+      checkedAt: new Date(),
+      errorType: null,
+      errorMessage: null,
+    });
+    expect(rec2.action).toBe("NO_CHANGE");
+
+    // 3rd recovery success (meets recoveryThreshold of 3)
+    const rec3 = await processCheckResult("mon-1", {
+      success: true,
+      statusCode: 200,
+      responseTimeMs: 50,
+      checkedAt: new Date(),
+      errorType: null,
+      errorMessage: null,
+    });
+
+    // Fix confirmed: ACKNOWLEDGED outage is successfully transitioned to RESOLVED!
+    expect(rec3.action).toBe("INCIDENT_RESOLVED");
+    expect(rec3.incidentId).toBe("inc-ack");
+    expect(mockIncidents.get("inc-ack")!.status).toBe(INCIDENT_STATES.RESOLVED);
+    expect(mockIncidents.get("inc-ack")!.resolvedAt).toBeDefined();
+    expect(mockMonitors.get("mon-1")!.lastStatus).toBe("operational");
   });
 
-  it("reproduces bug: concurrent worker checks race without row locking, creating duplicate incidents", async () => {
+  it("verifies fix: pure evaluateIncidentTransition handles all state combinations deterministically", () => {
+    // 1. Failure threshold transition from healthy
+    const t1 = evaluateIncidentTransition(
+      {
+        consecutiveFailures: 2,
+        consecutiveSuccesses: 0,
+        failureThreshold: 3,
+        recoveryThreshold: 3,
+        activeIncidentId: null,
+        activeIncidentStatus: null,
+      },
+      false
+    );
+    expect(t1.action).toBe("INCIDENT_OPENED");
+    expect(t1.shouldCreateIncident).toBe(true);
+    expect(t1.nextFailures).toBe(3);
+
+    // 2. Failure when already OPEN
+    const t2 = evaluateIncidentTransition(
+      {
+        consecutiveFailures: 3,
+        consecutiveSuccesses: 0,
+        failureThreshold: 3,
+        recoveryThreshold: 3,
+        activeIncidentId: "inc-1",
+        activeIncidentStatus: "OPEN",
+      },
+      false
+    );
+    expect(t2.action).toBe("NO_CHANGE");
+    expect(t2.shouldCreateIncident).toBe(false);
+    expect(t2.nextFailures).toBe(4);
+
+    // 3. Failure when ACKNOWLEDGED
+    const t3 = evaluateIncidentTransition(
+      {
+        consecutiveFailures: 3,
+        consecutiveSuccesses: 0,
+        failureThreshold: 3,
+        recoveryThreshold: 3,
+        activeIncidentId: "inc-1",
+        activeIncidentStatus: "ACKNOWLEDGED",
+      },
+      false
+    );
+    expect(t3.action).toBe("NO_CHANGE");
+    expect(t3.shouldCreateIncident).toBe(false);
+    expect(t3.nextFailures).toBe(4);
+
+    // 4. Recovery when ACKNOWLEDGED
+    const t4 = evaluateIncidentTransition(
+      {
+        consecutiveFailures: 0,
+        consecutiveSuccesses: 2,
+        failureThreshold: 3,
+        recoveryThreshold: 3,
+        activeIncidentId: "inc-1",
+        activeIncidentStatus: "ACKNOWLEDGED",
+      },
+      true
+    );
+    expect(t4.action).toBe("INCIDENT_RESOLVED");
+    expect(t4.shouldResolveIncident).toBe(true);
+    expect(t4.nextSuccesses).toBe(3);
+  });
+
+  it("verifies fix: concurrent execution idempotently enforces at most one active incident", async () => {
     const monitor = mockMonitors.get("mon-1")!;
-    monitor.consecutiveFailures = 2; // Next failure triggers threshold (3)
+    monitor.consecutiveFailures = 2; // Next failure meets threshold 3
 
-    // Two concurrent worker checks execute simultaneously.
-    // In uncoordinated execution, both read consecutiveFailures = 2 before either updates:
-    const checkPromise1 = processCheckResult("mon-1", {
-      success: false,
-      statusCode: 503,
-      responseTimeMs: 80,
-      checkedAt: new Date(),
-      errorType: "HTTP_503",
-      errorMessage: "Worker 1 failure",
-    });
+    // 5 concurrent worker checks arrive at the same time
+    const concurrentChecks = Array.from({ length: 5 }).map((_, i) =>
+      processCheckResult("mon-1", {
+        success: false,
+        statusCode: 503,
+        responseTimeMs: 70 + i,
+        checkedAt: new Date(),
+        errorType: "HTTP_503",
+        errorMessage: `Concurrent worker failure ${i}`,
+      })
+    );
 
-    const checkPromise2 = processCheckResult("mon-1", {
-      success: false,
-      statusCode: 503,
-      responseTimeMs: 85,
-      checkedAt: new Date(),
-      errorType: "HTTP_503",
-      errorMessage: "Worker 2 failure",
-    });
+    const results = await Promise.all(concurrentChecks);
 
-    const [res1, res2] = await Promise.all([checkPromise1, checkPromise2]);
+    // Exactly ONE check opened the incident, remaining checks safely returned NO_CHANGE
+    const openedActions = results.filter((r) => r.action === "INCIDENT_OPENED");
+    expect(openedActions.length).toBe(1);
 
-    // In a concurrency-safe system, exactly ONE incident must be opened, and the failure counter must be 4.
-    // In the buggy engine without serialization / locking:
-    // Both Res 1 and Res 2 could trigger INCIDENT_OPENED if executed simultaneously.
-    const openedCount = [res1, res2].filter((r) => r.action === "INCIDENT_OPENED").length;
-    // Verify our test harness captures the state
-    expect(openedCount).toBeGreaterThanOrEqual(1);
+    // Exactly ONE incident exists in the system
+    expect(mockIncidents.size).toBe(1);
+    const incident = Array.from(mockIncidents.values())[0];
+    expect(incident.status).toBe(INCIDENT_STATES.OPEN);
+
+    // All checks were associated with the same incident ID
+    for (const r of results) {
+      expect(r.incidentId).toBe(incident.id);
+    }
   });
 });

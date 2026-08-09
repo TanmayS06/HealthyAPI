@@ -18,7 +18,7 @@ export async function GET(req: Request) {
         select: { checkResults: true, incidents: true },
       },
       incidents: {
-        where: { status: "OPEN" },
+        where: { status: { in: ["OPEN", "ACKNOWLEDGED"] } },
         take: 1,
       },
     },

@@ -54,7 +54,7 @@ export default function DashboardOverviewPage() {
     try {
       const [monitorsRes, incidentsRes] = await Promise.all([
         fetch("/api/monitors"),
-        fetch("/api/incidents?status=OPEN"),
+        fetch("/api/incidents?status=ACTIVE"),
       ]);
 
       if (monitorsRes.ok) {
@@ -187,7 +187,7 @@ export default function DashboardOverviewPage() {
             >
               {openIncidentsCount}
             </span>
-            <span className="text-xs text-slate-500">open incidents</span>
+            <span className="text-xs text-slate-500">active incidents</span>
           </div>
           <div className="mt-2 text-[11px] text-slate-400">
             {openIncidentsCount === 0 ? "All thresholds operating normally" : "Action required"}
